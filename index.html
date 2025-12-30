@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learning & Social App - Full Version</title>
+<style>
+body { font-family: "Segoe UI", Arial, sans-serif; margin:0; padding:0; background: linear-gradient(to right,#f0f4f8,#d9e2ec); color:#333; }
+h2,h3{ margin-top:0; }
+input, button, textarea, select { display:block; margin:10px 0; padding:10px; width:100%; max-width:400px; border-radius:5px; border:1px solid #ccc; }
+button{ cursor:pointer; background:#4caf50; color:#fff; border:none; transition:0.3s;}
+button:hover{ background:#45a049; }
+#loginScreen, #adminDashboard, #userDashboard{ display:none; padding:20px; }
+.post, .friendCard, .quizCard, .mediaCard{ border-radius:10px; background:#fff; padding:15px; margin:10px 0; box-shadow:0 2px 5px rgba(0,0,0,0.1);}
+.friendCard{ cursor:pointer; color:#2196f3; text-decoration:underline; }
+#chatWindow{ border:1px solid #ccc; padding:10px; height:200px; overflow:auto; border-radius:5px; background:#f9f9f9; }
+#leaderboard .leader{ background:#f0f4f8; padding:10px; border-radius:5px; margin:5px 0; }
+.sectionCard{ background:#e8f0fe; padding:15px; margin:15px 0; border-radius:10px; }
+</style>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+
+<script>
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyBkQPaV-93ShTqiyJkMCzeUbSgwF2VEB6E",
+  authDomain: "offline-learning-app-10cad.firebaseapp.com",
+  projectId: "offline-learning-app-10cad",
+  storageBucket: "offline-learning-app-10cad.appspot.com",
+  messagingSenderId: "238102674888",
+  appId: "1:238102674888:web:e8d4a4a9ddcd6b8f4014fd",
+  databaseURL: "https://offline-learning-app-10cad-default-rtdb.firebaseio.com/"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+const storage = firebase.storage();
+
+let currentUser = null;
+
+// Show login initially
+document.getElementById("loginScreen").style.display="block";
+
+// Notifications
+function notify(message){
+  const n = document.createElement("div");
+  n.style.position="fixed"; n.style.bottom="20px"; n.style.right="20px";
+  n.style.background="#ff9800"; n.style.color="#fff"; n.style.padding="10px 20px";
+  n.style.borderRadius="5px"; n.style.boxShadow="0 2px 5px rgba(0,0,0,0.3)";
+  n.innerText = message; document.body.appendChild(n);
+  setTimeout(()=>n.remove(),4000);
+}
+
+// --- Admin credentials stored locally ---
+function getAdminCredentials() {
+  return {
+    username: localStorage.getItem("adminUsername") || "Andy2017",
+    password: localStorage.getItem("adminPassword") || "2017@aac.3"
+  };
+}
+
+function updateAdminCredentials(){
+  const newUser = document.getElementById("newAdminUser").value.trim();
+  const newPass = document.getElementById("newAdminPass").value.trim();
+  if(newUser && newPass){
+    localStorage.setItem("adminUsername", newUser);
+    localStorage.setItem("adminPassword", newPass);
+    notify("Admin credentials updated!");
+  } else {
+    notify("Enter both username and password!");
+  }
+}
+
+// --- Login ---
+function login(){
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("password").value.trim();
+  const role = document.getElementById("role").value;
+  
+  if(role==="admin"){
+    const adminCred = getAdminCredentials();
+    if(username === adminCred.username && password === adminCred.password){
+      currentUser = {username, role};
+      showAdminDashboard();
+    } else {
+      document.getElementById("loginMsg").innerText="Invalid admin credentials";
+    }
+  } else {
+    const email = username+"@example.com";
+    auth.signInWithEmailAndPassword(email,password)
+      .then(()=>{ currentUser={username,role}; showUserDashboard(); })
+      .catch(err=>{
+        auth.createUserWithEmailAndPassword(email,password)
+        .then(()=>{ currentUser={username,role}; showUserDashboard(); })
+        .catch(e=>{ document.getElementById("loginMsg").innerText=e.message; });
+      });
+  }
+}
+
+// Logout
+function logout(){ currentUser=null; document.getElementById("loginScreen").style.display="block"; document.getElementById("adminDashboard").style.display="none"; document.getElementById("userDashboard").style.display="none"; }
+
+// --- Admin Dashboard ---
+function showAdminDashboard(){
+  document.getElementById("loginScreen").style.display="none"; document.getElementById("adminDashboard").style.display="block";
+  renderPendingPosts(); renderUserList(); observeNewPosts();
+}
+
+// Notifications for new posts
+function observeNewPosts(){
+  db.ref("posts").on("child_added", snap=>{
+    const p = snap.val();
+    if(!p.approved) notify(`New post from ${p.username}`);
+  });
+}
+
+// Pending posts
+function renderPendingPosts(){
+  const container=document.getElementById("pendingPosts"); container.innerHTML="";
+  db.ref("posts").orderByChild("approved").equalTo(false).on("child_added", snap=>{
+    const p = snap.val(); const key=snap.key;
+    const div=document.createElement("div"); div.className="post";
+    div.innerHTML=`<strong>${p.username}</strong>: ${p.content} 
+      <button onclick="approvePost('${key}')">Approve</button>
+      <button onclick="deletePost('${key}')">Delete</button>`;
+    container.appendChild(div);
+  });
+}
+function approvePost(key){ db.ref("posts/"+key).update({approved:true}); notify("Post approved!"); }
+function deletePost(key){ db.ref("posts/"+key).remove(); notify("Post deleted"); }
+
+// Users
+function renderUserList(){ const container=document.getElementById("userList"); container.innerHTML=""; db.ref("users").on("value",snap=>{ container.innerHTML=""; snap.forEach(child=>container.innerHTML+=`<div>${child.key}</div>`); }); }
+
+// Upload quiz/file
+function uploadFile(){ const name=document.getElementById("fileName").value.trim(); if(name){ const key=db.ref("quizzes").push().key; db.ref("quizzes/"+key).set({name}); notify("File/quiz uploaded"); } }
+
+// Upload media
+function uploadMedia(){ const fileInput=document.getElementById("mediaFile"); if(fileInput.files.length>0){ const file=fileInput.files[0]; storage.ref("media/"+file.name).put(file).then(()=>{ notify("Media uploaded!"); renderMediaLibrary(); }); } }
+
+// --- User Dashboard ---
+function showUserDashboard(){
+  document.getElementById("loginScreen").style.display="none"; document.getElementById("userDashboard").style.display="block";
+  renderApprovedPosts(); renderFriendList(); renderChatSelect(); renderQuizzes(); renderMediaLibrary(); observeChatMessages();
+}
+
+// Submit post
+function submitPost(){ const content=document.getElementById("userPost").value.trim(); if(content){ const key=db.ref("posts").push().key; db.ref("posts/"+key).set({username:currentUser.username,content,approved:false}); document.getElementById("userPost").value=""; notify("Post submitted, awaiting approval"); } }
+
+// Approved posts
+function renderApprovedPosts(){ const container=document.getElementById("approvedPosts"); db.ref("posts").orderByChild("approved").equalTo(true).on("child_added",snap=>{ const p=snap.val(); const div=document.createElement("div"); div.className="post"; div.innerHTML=`<strong>${p.username}</strong>: ${p.content}`; container.appendChild(div); }); }
+
+// Friends
+function renderFriendList(){ const container=document.getElementById("friendList"); container.innerHTML=""; db.ref("users").on("value",snap=>{ container.innerHTML=""; snap.forEach(child=>{ const username=child.key; if(username!==currentUser.username){ const div=document.createElement("div"); div.className="friendCard"; div.innerText=username; div.onclick=()=>addFriend(username); container.appendChild(div); } }); }); }
+function addFriend(friendName){ db.ref("friends/"+currentUser.username+"/"+friendName).set(true); notify(`Friend request sent to ${friendName}`); renderChatSelect(); }
+
+// Chat
+function renderChatSelect(){ const select=document.getElementById("chatFriendSelect"); select.innerHTML=""; db.ref("friends/"+currentUser.username).on("value",snap=>{ select.innerHTML=""; snap.forEach(child=>{ const option=document.createElement("option"); option.value=child.key; option.text=child.key; select.appendChild(option); }); }); }
+function sendMessage(){ const to=document.getElementById("chatFriendSelect").value; const msg=document.getElementById("chatMessage").value.trim(); if(to && msg){ const key=db.ref("chats").push().key; db.ref("chats/"+key).set({from:currentUser.username,to,message:msg,timestamp:Date.now()}); document.getElementById("chatMessage").value=""; } }
+function observeChatMessages(){ db.ref("chats").on("child_added",snap=>{ const c=snap.val(); if(c.to===currentUser.username){ notify(`New message from ${c.from}`); renderChatWindow(c.from); } }); }
+function renderChatWindow(friend){ const container=document.getElementById("chatWindow"); container.innerHTML=""; db.ref("chats").orderByChild("timestamp").on("child_added",snap=>{ const c=snap.val(); if((c.from===currentUser.username && c.to===friend)||(c.from===friend && c.to===currentUser.username)){ container.innerHTML+=`<div><strong>${c.from}</strong>: ${c.message}</div>`; } }); }
+
+// Quizzes & leaderboard
+function renderQuizzes(){ const container=document.getElementById("quizSection"); container.innerHTML=""; db.ref("quizzes").on("child_added",snap=>{ const q=snap.val(); container.innerHTML+=`<div class="quizCard">${q.name}</div>`; renderLeaderboard(); }); }
+function renderLeaderboard(){ const container=document.getElementById("quizSection"); container.innerHTML+="<h3>Leaderboard</h3>"; db.ref("quizScores").orderByChild("score").limitToLast(5).on("child_added",snap=>{ const u=snap.key; const s=snap.val().score; const div=document.createElement("div"); div.className="leader"; div.innerText=`${u}: ${s} pts`; container.appendChild(div); }); }
+
+// Media Library
+function renderMediaLibrary(){ const container=document.getElementById("mediaLibrary"); container.innerHTML=""; storage.ref("media").listAll().then(res=>{ res.items.forEach(fileRef=>{ const div=document.createElement("div"); div.className="mediaCard"; div.innerHTML=`<a href="#" onclick="downloadMedia('${fileRef.fullPath}')">${fileRef.name}</a>`; container.appendChild(div); }); }); }
+function downloadMedia(path){ storage.ref(path).getDownloadURL().then(url=>{ window.open(url,"_blank"); }); }
+
+</script>
+
+<body>
+<!-- Login -->
+<div id="loginScreen">
+  <h2>Login / Signup</h2>
+  <input type="text" id="username" placeholder="Username (or email)">
+  <input type="password" id="password" placeholder="Password">
+  <select id="role">
+    <option value="user">User</option>
+    <option value="admin">Admin</option>
+  </select>
+  <button onclick="login()">Login / Signup</button>
+  <p id="loginMsg" style="color:red;"></p>
+</div>
+
+<!-- Admin Dashboard -->
+<div id="adminDashboard">
+  <h2>Admin Dashboard</h2>
+  <h3>Pending Posts</h3>
+  <div id="pendingPosts"></div>
+  <h3>All Users</h3>
+  <div id="userList"></div>
+  <h3>Upload File / Quiz</h3>
+  <input type="text" id="fileName" placeholder="File/Quiz Name">
+  <button onclick="uploadFile()">Upload</button>
+  <h3>Upload Media</h3>
+  <input type="file" id="mediaFile" accept="image/*,audio/*,video/*">
+  <button onclick="uploadMedia()">Upload Media</button>
+
+  <!-- Admin Credentials Section -->
+  <div id="adminCredentials" class="sectionCard">
+    <h3>Update Admin Credentials</h3>
+    <input type="text" id="newAdminUser" placeholder="New username">
+    <input type="password" id="newAdminPass" placeholder="New password">
+    <button onclick="updateAdminCredentials()">Update Credentials</button>
+  </div>
+
+  <button onclick="logout()">Logout</button>
+</div>
+
+<!-- User Dashboard -->
+<div id="userDashboard">
+  <h2>User Dashboard</h2>
+  <h3>Approved Posts</h3>
+  <div id="approvedPosts"></div>
+  <h3>Submit Post</h3>
+  <textarea id="userPost" placeholder="Write your post"></textarea>
+  <button onclick="submitPost()">Submit</button>
+  <h3>Friend List</h3>
+  <div id="friendList"></div>
+  <h3>Private Chat</h3>
+  <select id="chatFriendSelect"></select>
+  <textarea id="chatMessage" placeholder="Type message"></textarea>
+  <button onclick="sendMessage()">Send</button>
+  <div id="chatWindow"></div>
+  <h3>Quizzes / Leaderboard</h3>
+  <div id="quizSection"></div>
+  <h3>Media Library</h3>
+  <div id="mediaLibrary"></div>
+  <button onclick="logout()">Logout</button>
+</div>
+</body>
+</html>
